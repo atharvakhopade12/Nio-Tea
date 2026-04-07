@@ -41,8 +41,7 @@ const sendOTPHandler = async (req, res) => {
     success: true,
     message: `OTP sent to ${phone}`,
     purpose,
-    // DEVELOPMENT ONLY — remove in production
-    ...(process.env.NODE_ENV === 'development' && { devOTP: otp }),
+    devOTP: otp,
   });
 };
 
