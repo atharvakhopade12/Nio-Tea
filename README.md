@@ -70,7 +70,12 @@ npm run install:all
 # Configure server
 cd server
 cp .env.example .env
-# Edit .env with your MongoDB URI, JWT secrets, Cloudinary keys, OTP credentials
+# Edit .env with your MongoDB URI, JWT secrets, Cloudinary keys, OTP credentials, and Supabase keys
+
+# Configure frontend
+cd ../client
+cp .env.example .env
+# Edit .env with VITE_API_URL, VITE_SUPABASE_URL, and VITE_SUPABASE_ANON_KEY
 ```
 
 ### 2. Start Development Servers
@@ -169,13 +174,19 @@ nio-tea/
 ## 📦 Deployment Notes
 
 1. Set `NODE_ENV=production` in server `.env`
-2. Remove `devOTP` from API responses (already guarded by `NODE_ENV`)
-3. Use MongoDB Atlas for cloud database
-4. Configure Cloudinary for images
-5. Set real Twilio/Fast2SMS credentials
-6. Change default admin email/password
-7. `npm run build` generates `client/dist/` for static hosting (Vercel, Nginx, etc.)
-8. Serve static build from Express or a CDN
+2. Set Supabase env vars in both frontend and backend:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+3. Set `CLIENT_URL` to your deployed frontend domain in backend env / Vercel server settings
+4. Remove `devOTP` from API responses (already guarded by `NODE_ENV`)
+5. Use MongoDB Atlas for cloud database
+6. Configure Cloudinary for images
+7. Set real Twilio/Fast2SMS credentials
+8. Change default admin email/password
+9. `npm run build` generates `client/dist/` for static hosting (Vercel, Nginx, etc.)
+10. Serve static build from Express or a CDN
 
 ---
 
