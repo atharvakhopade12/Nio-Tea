@@ -1,0 +1,134 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,400&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Base Reset ──────────────────────────────────────────────── */
+@layer base {
+  html { scroll-behavior: smooth; }
+  body {
+    @apply font-sans text-nio-dark bg-white antialiased;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4 { @apply font-serif; }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { @apply bg-nio-cream; }
+  ::-webkit-scrollbar-thumb { @apply bg-nio-green-600 rounded-full; }
+}
+
+/* ─── Component Classes ───────────────────────────────────────── */
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-8 py-3 rounded-full
+           bg-nio-green-800 text-white font-medium text-sm tracking-wide
+           transition-all duration-300
+           hover:bg-nio-green-700 hover:shadow-nio-lg hover:-translate-y-0.5
+           active:scale-95 focus:outline-none focus:ring-2 focus:ring-nio-green-500 focus:ring-offset-2;
+  }
+
+  .btn-gold {
+    @apply inline-flex items-center justify-center gap-2 px-8 py-3 rounded-full
+           bg-nio-gold-500 text-white font-medium text-sm tracking-wide
+           transition-all duration-300
+           hover:bg-nio-gold-600 hover:shadow-gold hover:-translate-y-0.5
+           active:scale-95 focus:outline-none focus:ring-2 focus:ring-nio-gold-400 focus:ring-offset-2;
+  }
+
+  .btn-outline {
+    @apply inline-flex items-center justify-center gap-2 px-8 py-3 rounded-full
+           border-2 border-nio-green-800 text-nio-green-800 font-medium text-sm tracking-wide
+           transition-all duration-300
+           hover:bg-nio-green-800 hover:text-white hover:-translate-y-0.5
+           active:scale-95;
+  }
+
+  .section-title {
+    @apply text-3xl md:text-4xl lg:text-5xl font-serif font-bold text-nio-green-900 leading-tight;
+  }
+
+  .section-subtitle {
+    @apply text-base md:text-lg text-nio-green-700 font-light leading-relaxed;
+  }
+
+  .card {
+    @apply bg-white rounded-2xl shadow-nio overflow-hidden transition-all duration-300
+           hover:shadow-nio-lg hover:-translate-y-1;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-nio-dark
+           font-sans text-sm outline-none transition-all duration-200
+           focus:border-nio-green-500 focus:ring-2 focus:ring-nio-green-100
+           placeholder:text-gray-400;
+  }
+
+  .label { @apply block text-sm font-medium text-nio-green-900 mb-1.5; }
+
+  .badge {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-medium;
+  }
+
+  .gold-divider {
+    @apply w-16 h-0.5 bg-nio-gold-500 mx-auto my-4;
+  }
+
+  .container-custom {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  .section-padding {
+    @apply py-16 md:py-24;
+  }
+
+  .glass-card {
+    @apply bg-white/80 backdrop-blur-sm rounded-2xl border border-white/50 shadow-nio;
+  }
+
+  .admin-sidebar-link {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium
+           transition-all duration-200 cursor-pointer;
+  }
+
+  .tea-gradient {
+    background: linear-gradient(135deg, #1B3A18 0%, #2d5520 50%, #D4A017 100%);
+  }
+
+  .text-gradient {
+    background: linear-gradient(135deg, #1B3A18, #4a8f34);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
+
+/* ─── AOS Custom Overrides ─────────────────────────────────────── */
+[data-aos] { pointer-events: none; }
+[data-aos].aos-animate { pointer-events: auto; }
+
+/* ─── Loader ────────────────────────────────────────────────────── */
+.loader {
+  width: 40px; height: 40px;
+  border: 3px solid #ddefd4;
+  border-top-color: #1B3A18;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─── Page Transitions ──────────────────────────────────────────── */
+.page-enter { opacity: 0; transform: translateY(16px); }
+.page-enter-active { opacity: 1; transform: translateY(0); transition: opacity 400ms, transform 400ms; }
+.page-exit { opacity: 1; }
+.page-exit-active { opacity: 0; transition: opacity 300ms; }
+
+/* ─── Hero leaf animation ────────────────────────────────────────── */
+.leaf-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle at 20% 80%, rgba(27,58,24,0.06) 0%, transparent 50%),
+                    radial-gradient(circle at 80% 20%, rgba(212,160,23,0.06) 0%, transparent 50%);
+  pointer-events: none;
+}
