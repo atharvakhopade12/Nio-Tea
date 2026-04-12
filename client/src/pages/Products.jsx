@@ -33,8 +33,8 @@ export default function Products() {
       if (currentSearch) params.set('search', currentSearch);
 
       const res = await API.get(`/products?${params}`);
-      setProducts(res.data.products);
-      setTotal(res.data.total);
+setProducts(res.data.products || []);      
+setTotal(res.data.total);
       setPages(res.data.pages);
     } catch {
       setProducts([]);

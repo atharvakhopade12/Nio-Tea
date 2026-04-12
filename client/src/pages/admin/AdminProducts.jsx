@@ -5,6 +5,7 @@ import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { adminAPI } from '../../api/axios';
 import toast from 'react-hot-toast';
+import { supabase } from '../../lib/supabase';
 
 const LEAF_GRADES = ['TGFOP', 'FTGFOP', 'SFTGFOP', 'BOP', 'BOPF', 'CTC', 'Dust', 'Other'];
 
@@ -17,28 +18,35 @@ const empty = {
   images: [],
 };
 
-const SUPPORTED_FORMATS = [
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'image/jpg',
-  'image/gif',
-  'image/svg+xml',
-  'image/avif',
-  'image/bmp',
-  'image/tiff',
-];
-
 // Image crop helper
 const getCroppedImg = (image, crop) => {
   const canvas = document.createElement('canvas');
-  const scaleX = image.naturalWidth / image.width;
-  const scaleY = image.naturalHeight / image.height;
-  canvas.width = crop.width * scaleX;
-  canvas.height = crop.height * scaleY;
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(image, crop.x * scaleX, crop.y * scaleY, crop.width * scaleX, crop.height * scaleY, 0, 0, canvas.width, canvas.height);
-  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+
+  canvas.width = crop.width;
+  canvas.height = crop.height;
+
+  ctx.drawImage(
+    image,
+    crop.x,
+    crop.y,
+    crop.width,
+    crop.height,
+    0,
+    0,
+    crop.width,
+    crop.height
+  );
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error('Canvas is empty'));
+        return;
+      }
+      resolve(blob);
+    }, 'image/jpeg', 0.9);
+  });
 };
 
 export default function AdminProducts() {
@@ -101,37 +109,12 @@ export default function AdminProducts() {
 
   // Image upload flow
   const onFileSelect = (e) => {
-  const files = Array.from(e.target.files || []);
-  if (!files.length) return;
-
-  const validFiles = [];
-  const invalidFiles = [];
-
-  files.forEach((file) => {
-    if (SUPPORTED_FORMATS.includes(file.type)) {
-      validFiles.push(file);
-    } else {
-      invalidFiles.push(file.name);
-    }
-  });
-
-  if (invalidFiles.length) {
-    toast.error(`Unsupported files: ${invalidFiles.join(', ')}`);
-  }
-
-  if (!validFiles.length) return;
-
-  // Continue with valid files
-  setPendingFiles(validFiles);
-
-  // Optional: crop only first image
-  const reader = new FileReader();
-  reader.onload = () => {
-    setImgSrc(reader.result);
-    setShowCrop(true);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { setImgSrc(reader.result); setShowCrop(true); };
+    reader.readAsDataURL(file);
   };
-  reader.readAsDataURL(validFiles[0]);
-};
 
   const onImageLoad = (e) => {
     const { width, height } = e.currentTarget;
@@ -145,24 +128,65 @@ export default function AdminProducts() {
     setCompletedCrop({ x: pxX, y: pxY, width: pxW, height: pxH, unit: 'px' });
   };
 
-  const handleCropAndUpload = async () => {
-    if (!completedCrop || !imgRef.current) return;
-    setUploading(true);
-    try {
-      const blob = await getCroppedImg(imgRef.current, completedCrop);
-      const fd = new FormData();
-      fd.append('image', blob, 'product.jpg');
-      const res = await adminAPI.post('/admin/products/upload-image', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setForm((prev) => ({
-        ...prev,
-        images: [...(prev.images || []), { ...res.data.image, alt: prev.name, isPrimary: (prev.images || []).length === 0 }],
-      }));
-      setShowCrop(false);
-      setImgSrc('');
-      toast.success('Image uploaded!');
-    } catch { toast.error('Image upload failed.'); }
-    finally { setUploading(false); }
-  };
+const handleCropAndUpload = async () => {
+  if (!completedCrop || !imgRef.current) {
+    toast.error('Crop not ready');
+    return;
+  }
+
+  setUploading(true);
+
+  try {
+    const blob = await getCroppedImg(imgRef.current, completedCrop);
+
+    if (!blob) throw new Error('Blob generation failed');
+
+    const fileName = `product-${Date.now()}.jpg`;
+
+    console.log("Uploading...", fileName);
+
+    const { data, error } = await supabase.storage
+      .from('Products')
+      .upload(fileName, blob, {
+        contentType: 'image/jpeg',
+      });
+
+    if (error) {
+      console.error("Supabase upload error:", error);
+      throw error;
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from('Products')
+      .getPublicUrl(fileName);
+
+    const imageUrl = publicUrlData.publicUrl;
+
+    console.log("Uploaded URL:", imageUrl);
+
+    setForm((prev) => ({
+      ...prev,
+      images: [
+        ...(prev.images || []),
+        {
+          url: imageUrl,
+          alt: prev.name,
+          isPrimary: (prev.images || []).length === 0,
+        },
+      ],
+    }));
+
+    setShowCrop(false);
+    setImgSrc('');
+
+    toast.success('Image uploaded!');
+  } catch (err) {
+    console.error("UPLOAD ERROR:", err);
+    toast.error(err.message || 'Upload failed');
+  } finally {
+    setUploading(false);
+  }
+};
 
   const removeImage = async (img, idx) => {
     if (img.publicId) {
@@ -321,8 +345,11 @@ export default function AdminProducts() {
                     <ReactCrop
                       crop={crop}
                       onChange={(_, pc) => setCrop(pc)}
-                      onComplete={(c) => setCompletedCrop(c)}
-                      aspect={1}
+onComplete={(c) => {
+  if (c?.width && c?.height) {
+    setCompletedCrop(c);
+  }
+}}                      aspect={1}
                       circularCrop={false}
                     >
                       <img ref={imgRef} src={imgSrc} onLoad={onImageLoad} className="max-w-full max-h-80" alt="Crop" />

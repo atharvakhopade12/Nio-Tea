@@ -4,18 +4,34 @@ import { motion } from 'framer-motion';
 import API from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import ProductCard from '../ui/ProductCard';
+import { supabase } from '../../lib/supabase';
 
 export default function FeaturedProducts() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading]   = useState(true);
   const { isLoggedIn } = useAuth();
 
-  useEffect(() => {
-    API.get('/products?featured=true&limit=6')
-      .then((res) => setProducts(res.data.products || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [isLoggedIn]);
+useEffect(() => {
+  const fetchProducts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('products') // table name EXACT
+        .select('*')
+        .limit(6);
+
+      if (error) throw error;
+
+      console.log("SUPABASE DATA:", data);
+      setProducts(data || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  fetchProducts();
+}, [isLoggedIn]);
 
   return (
     <section className="section-padding bg-nio-cream">
