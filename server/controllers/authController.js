@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const OTP = require('../models/OTP');
-const { generateOTP, sendOTP } = require('../utils/sendOTP');
+const { generateOTP, sendOTP, verifyOTPWithProvider } = require('../utils/sendOTP');
 
 const signToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE });
@@ -16,17 +16,41 @@ const sendOTPHandler = async (req, res) => {
     return res.status(400).json({ success: false, message: 'Please provide a valid 10-digit Indian mobile number.' });
   }
 
+  const existingUser = await User.findOne({ phone });
+  const purpose = existingUser ? 'login' : 'register';
+
+  // Existing users: direct login (no OTP required)
+  if (existingUser) {
+    existingUser.lastLogin = new Date();
+    if (!existingUser.isVerified) existingUser.isVerified = true;
+    await existingUser.save();
+
+    const token = signToken(existingUser._id);
+    return res.status(200).json({
+      success: true,
+      message: 'Login successful!',
+      purpose: 'login',
+      requiresOTP: false,
+      token,
+      user: {
+        id: existingUser._id,
+        name: existingUser.name,
+        phone: existingUser.phone,
+        isVerified: existingUser.isVerified,
+        createdAt: existingUser.createdAt,
+      },
+    });
+  }
+
+  // New users: OTP required for signup
+  if (!name) {
+    return res.status(400).json({ success: false, message: 'Name is required for new registration.' });
+  }
+
   // Rate limiting: block if an OTP was sent within the last 60 seconds
   const recentOTP = await OTP.findRecentByPhone(phone, 60_000);
   if (recentOTP) {
     return res.status(429).json({ success: false, message: 'Please wait 1 minute before requesting a new OTP.' });
-  }
-
-  const existingUser = await User.findOne({ phone });
-  const purpose = existingUser ? 'login' : 'register';
-
-  if (purpose === 'register' && !name) {
-    return res.status(400).json({ success: false, message: 'Name is required for new registration.' });
   }
 
   await OTP.deleteByPhone(phone);
@@ -40,7 +64,8 @@ const sendOTPHandler = async (req, res) => {
   res.status(200).json({
     success: true,
     message: `OTP sent to ${phone}`,
-    purpose,
+    purpose: 'register',
+    requiresOTP: true,
     devOTP: otp,
   });
 };
@@ -53,6 +78,14 @@ const verifyOTPHandler = async (req, res) => {
 
   if (!phone || !otp) {
     return res.status(400).json({ success: false, message: 'Phone and OTP are required.' });
+  }
+
+  const existingUser = await User.findOne({ phone });
+  if (existingUser) {
+    return res.status(400).json({
+      success: false,
+      message: 'Existing users do not require OTP. Please continue with direct login.',
+    });
   }
 
   // findAnyByPhone includes expired records so we can return the right error message
@@ -73,32 +106,25 @@ const verifyOTPHandler = async (req, res) => {
     return res.status(400).json({ success: false, message: 'Too many failed attempts. Please request a new OTP.' });
   }
 
-  if (otpRecord.otp !== otp.toString()) {
+  const verifyResult = await verifyOTPWithProvider(phone, otp.toString(), otpRecord.otp);
+  if (!verifyResult.ok) {
     await OTP.incrementAttempts(otpRecord._id);
-    return res.status(400).json({ success: false, message: 'Invalid OTP. Please try again.' });
+    return res.status(400).json({ success: false, message: verifyResult.message || 'Invalid OTP. Please try again.' });
   }
 
   await OTP.markVerified(otpRecord._id);
 
-  let user = await User.findOne({ phone });
-  const isNewUser = !user;
-
-  if (!user) {
-    if (!name) {
-      return res.status(400).json({ success: false, message: 'Name is required for registration.' });
-    }
-    user = await User.create({ phone, name, isVerified: true });
-  } else {
-    user.isVerified = true;
-    user.lastLogin = new Date();
-    await user.save();
+  if (!name) {
+    return res.status(400).json({ success: false, message: 'Name is required for registration.' });
   }
+
+  const user = await User.create({ phone, name, isVerified: true, lastLogin: new Date() });
 
   const token = signToken(user._id);
 
   res.status(200).json({
     success: true,
-    message: isNewUser ? 'Account created successfully!' : 'Login successful!',
+    message: 'Account created successfully!',
     token,
     user: {
       id: user._id,

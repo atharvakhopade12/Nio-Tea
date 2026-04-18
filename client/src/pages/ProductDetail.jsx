@@ -94,7 +94,7 @@ export default function ProductDetail() {
                 <img
                   src={images[activeImg]?.url}
                   alt={images[activeImg]?.alt || product.name}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain"
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-nio-cream">
@@ -114,7 +114,7 @@ export default function ProductDetail() {
                       activeImg === i ? 'border-nio-green-800' : 'border-transparent hover:border-nio-green-300'
                     }`}
                   >
-                    <img src={img.url} alt="" className="w-full h-full object-cover" />
+                    <img src={img.url} alt="" className="w-full h-full object-contain" />
                   </button>
                 ))}
               </div>

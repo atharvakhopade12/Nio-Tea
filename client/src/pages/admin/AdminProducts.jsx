@@ -1,11 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HiPlus, HiPencil, HiTrash, HiX, HiPhotograph, HiCheck, HiSearch } from 'react-icons/hi';
-import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop';
-import 'react-image-crop/dist/ReactCrop.css';
 import { adminAPI } from '../../api/axios';
 import toast from 'react-hot-toast';
-import { supabase } from '../../lib/supabase';
 
 const LEAF_GRADES = ['TGFOP', 'FTGFOP', 'SFTGFOP', 'BOP', 'BOPF', 'CTC', 'Dust', 'Other'];
 
@@ -16,37 +13,6 @@ const empty = {
   brewingInstructions: { temperature: '', time: '', quantity: '' },
   seo: { metaTitle: '', metaDescription: '' },
   images: [],
-};
-
-// Image crop helper
-const getCroppedImg = (image, crop) => {
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-
-  canvas.width = crop.width;
-  canvas.height = crop.height;
-
-  ctx.drawImage(
-    image,
-    crop.x,
-    crop.y,
-    crop.width,
-    crop.height,
-    0,
-    0,
-    crop.width,
-    crop.height
-  );
-
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(new Error('Canvas is empty'));
-        return;
-      }
-      resolve(blob);
-    }, 'image/jpeg', 0.9);
-  });
 };
 
 export default function AdminProducts() {
@@ -61,13 +27,7 @@ export default function AdminProducts() {
   const [page, setPage]             = useState(1);
   const [categories, setCategories] = useState([]);
 
-  // Image crop state
-  const [imgSrc, setImgSrc]         = useState('');
-  const [crop, setCrop]             = useState();
-  const [completedCrop, setCompletedCrop] = useState(null);
-  const [showCrop, setShowCrop]     = useState(false);
   const [uploading, setUploading]   = useState(false);
-  const imgRef                      = useRef(null);
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
@@ -107,86 +67,43 @@ export default function AdminProducts() {
   const addVariant    = () => setForm({ ...form, variants: [...form.variants, { weight: '', price: '', sku: '' }] });
   const removeVariant = (i) => setForm({ ...form, variants: form.variants.filter((_, idx) => idx !== i) });
 
-  // Image upload flow
-  const onFileSelect = (e) => {
+  // Image upload flow (full image, no forced crop)
+  const onFileSelect = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => { setImgSrc(reader.result); setShowCrop(true); };
-    reader.readAsDataURL(file);
-  };
 
-  const onImageLoad = (e) => {
-    const { width, height } = e.currentTarget;
-    const c = centerCrop(makeAspectCrop({ unit: '%', width: 90 }, 1, width, height), width, height);
-    setCrop(c);
-    // Auto-complete so upload works even without user adjusting the crop
-    const pxW = c.width / 100 * width;
-    const pxH = c.height / 100 * height;
-    const pxX = c.x / 100 * width;
-    const pxY = c.y / 100 * height;
-    setCompletedCrop({ x: pxX, y: pxY, width: pxW, height: pxH, unit: 'px' });
-  };
-
-const handleCropAndUpload = async () => {
-  if (!completedCrop || !imgRef.current) {
-    toast.error('Crop not ready');
-    return;
-  }
-
-  setUploading(true);
-
-  try {
-    const blob = await getCroppedImg(imgRef.current, completedCrop);
-
-    if (!blob) throw new Error('Blob generation failed');
-
-    const fileName = `product-${Date.now()}.jpg`;
-
-    console.log("Uploading...", fileName);
-
-    const { data, error } = await supabase.storage
-      .from('Products')
-      .upload(fileName, blob, {
-        contentType: 'image/jpeg',
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      const res = await adminAPI.post('/admin/products/upload-image', formData, {
+        headers: { 'Content-Type': undefined },
       });
 
-    if (error) {
-      console.error("Supabase upload error:", error);
-      throw error;
+      const uploadedImage = res.data?.image;
+      if (!uploadedImage?.url) throw new Error('No image URL returned');
+
+      setForm((prev) => ({
+        ...prev,
+        images: [
+          ...(prev.images || []),
+          {
+            url: uploadedImage.url,
+            publicId: uploadedImage.publicId,
+            alt: prev.name,
+            isPrimary: (prev.images || []).length === 0,
+          },
+        ],
+      }));
+
+      toast.success('Image uploaded!');
+    } catch (err) {
+      toast.error(err.response?.data?.message || err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+      e.target.value = '';
     }
-
-    const { data: publicUrlData } = supabase.storage
-      .from('Products')
-      .getPublicUrl(fileName);
-
-    const imageUrl = publicUrlData.publicUrl;
-
-    console.log("Uploaded URL:", imageUrl);
-
-    setForm((prev) => ({
-      ...prev,
-      images: [
-        ...(prev.images || []),
-        {
-          url: imageUrl,
-          alt: prev.name,
-          isPrimary: (prev.images || []).length === 0,
-        },
-      ],
-    }));
-
-    setShowCrop(false);
-    setImgSrc('');
-
-    toast.success('Image uploaded!');
-  } catch (err) {
-    console.error("UPLOAD ERROR:", err);
-    toast.error(err.message || 'Upload failed');
-  } finally {
-    setUploading(false);
-  }
-};
+  };
 
   const removeImage = async (img, idx) => {
     if (img.publicId) {
@@ -267,7 +184,7 @@ const handleCropAndUpload = async () => {
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-lg overflow-hidden bg-nio-cream shrink-0">
                           {p.images?.[0] ? (
-                            <img src={p.images[0].url} alt="" className="w-full h-full object-cover" />
+                            <img src={p.images[0].url} alt="" className="w-full h-full object-contain" />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center text-gray-300 text-xs">🍃</div>
                           )}
@@ -336,35 +253,6 @@ const handleCropAndUpload = async () => {
                   <HiX className="w-5 h-5 text-gray-600" />
                 </button>
               </div>
-
-              {/* Image crop overlay */}
-              {showCrop && (
-                <div className="absolute inset-0 bg-black/80 z-10 flex flex-col items-center justify-center gap-4 p-6">
-                  <p className="text-white font-medium text-sm mb-2">Crop & Preview Image</p>
-                  <div className="max-h-96 overflow-auto">
-                    <ReactCrop
-                      crop={crop}
-                      onChange={(_, pc) => setCrop(pc)}
-onComplete={(c) => {
-  if (c?.width && c?.height) {
-    setCompletedCrop(c);
-  }
-}}                      aspect={1}
-                      circularCrop={false}
-                    >
-                      <img ref={imgRef} src={imgSrc} onLoad={onImageLoad} className="max-w-full max-h-80" alt="Crop" />
-                    </ReactCrop>
-                  </div>
-                  <div className="flex gap-3">
-                    <button onClick={() => setShowCrop(false)} className="px-5 py-2 rounded-xl border border-white/30 text-white text-sm hover:bg-white/10">
-                      Cancel
-                    </button>
-                    <button onClick={handleCropAndUpload} disabled={uploading} className="btn-gold text-sm py-2 px-6 disabled:opacity-50">
-                      {uploading ? 'Uploading...' : 'Upload Image'}
-                    </button>
-                  </div>
-                </div>
-              )}
 
               {/* Form */}
               <form onSubmit={handleSave} className="flex-1 overflow-y-auto">
@@ -468,7 +356,7 @@ onComplete={(c) => {
                     <div className="flex flex-wrap gap-2 mb-2">
                       {(form.images || []).map((img, idx) => (
                         <div key={idx} className="relative w-20 h-20 rounded-xl overflow-hidden group">
-                          <img src={img.url} alt="" className="w-full h-full object-cover" />
+                          <img src={img.url} alt="" className="w-full h-full object-contain" />
                           <button
                             type="button"
                             onClick={() => removeImage(img, idx)}
@@ -481,8 +369,8 @@ onComplete={(c) => {
                       ))}
                       <label className="w-20 h-20 rounded-xl border-2 border-dashed border-nio-green-200 flex flex-col items-center justify-center cursor-pointer hover:border-nio-green-500 hover:bg-nio-green-50 transition-all">
                         <HiPhotograph className="w-5 h-5 text-nio-green-400" />
-                        <span className="text-xs text-nio-green-400 mt-1">Add</span>
-                        <input type="file" accept="image/*" className="hidden" onChange={onFileSelect} />
+                        <span className="text-xs text-nio-green-400 mt-1">{uploading ? '...' : 'Add'}</span>
+                        <input type="file" accept="image/*,.heic,.heif,.avif,.bmp,.tiff" className="hidden" onChange={onFileSelect} disabled={uploading} />
                       </label>
                     </div>
                   </div>

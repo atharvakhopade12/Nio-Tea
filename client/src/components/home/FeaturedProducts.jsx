@@ -21,7 +21,7 @@ useEffect(() => {
 
       if (error) throw error;
 
-      console.log("SUPABASE DATA:", data);
+      // console.log("SUPABASE DATA:", data);
       setProducts(data || []);
     } catch (err) {
       console.error(err);

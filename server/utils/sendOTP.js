@@ -1,6 +1,6 @@
 /**
  * OTP Sender Utility
- * Supports: Twilio, Fast2SMS, or Dev Mock
+ * Supports: MSG91 or Dev Mock
  * Set OTP_PROVIDER in .env to switch between providers
  */
 
@@ -8,29 +8,51 @@ const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// ─── Twilio Provider ────────────────────────────────────────────────────────
-const sendViaTwilio = async (phone, otp) => {
-  const twilio = require('twilio');
-  const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-  await client.messages.create({
-    body: `Your Nio Tea OTP is: ${otp}. Valid for 10 minutes. Do not share with anyone.`,
-    from: process.env.TWILIO_PHONE_NUMBER,
-    to: `+91${phone}`,
+// ─── MSG91 Provider ──────────────────────────────────────────────────────────
+const sendViaMSG91 = async (phone, otp) => {
+  const authKey = process.env.MSG91_AUTH_KEY;
+  const templateId = process.env.MSG91_TEMPLATE_ID;
+  if (!authKey || !templateId) {
+    throw new Error('MSG91 credentials are not configured.');
+  }
+
+  const qs = new URLSearchParams({
+    authkey: authKey,
+    template_id: templateId,
+    mobile: `91${phone}`,
+    otp,
   });
+
+  const resp = await fetch(`https://control.msg91.com/api/v5/otp?${qs.toString()}`, {
+    method: 'POST',
+  });
+
+  const json = await resp.json().catch(() => ({}));
+  if (!resp.ok || json.type === 'error') {
+    throw new Error(json.message || 'Failed to send OTP via MSG91.');
+  }
 };
 
-// ─── Fast2SMS Provider ───────────────────────────────────────────────────────
-const sendViaFast2SMS = async (phone, otp) => {
-  const axios = require('axios');
-  await axios.get('https://www.fast2sms.com/dev/bulkV2', {
-    params: {
-      authorization: process.env.FAST2SMS_API_KEY,
-      variables_values: otp,
-      route: 'otp',
-      numbers: phone,
-    },
-    headers: { 'cache-control': 'no-cache' },
+const verifyViaMSG91 = async (phone, otp) => {
+  const authKey = process.env.MSG91_AUTH_KEY;
+  if (!authKey) {
+    throw new Error('MSG91 credentials are not configured.');
+  }
+
+  const qs = new URLSearchParams({
+    authkey: authKey,
+    mobile: `91${phone}`,
+    otp,
   });
+
+  const resp = await fetch(`https://control.msg91.com/api/v5/otp/verify?${qs.toString()}`, {
+    method: 'GET',
+  });
+
+  const json = await resp.json().catch(() => ({}));
+  if (!resp.ok) return { ok: false, message: json.message || 'OTP verification failed.' };
+  if (json.type === 'success') return { ok: true };
+  return { ok: false, message: json.message || 'Invalid OTP.' };
 };
 
 // ─── Mock Provider (Development) ─────────────────────────────────────────────
@@ -41,18 +63,26 @@ const sendViaMock = async (phone, otp) => {
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
 const sendOTP = async (phone, otp) => {
-  const provider = process.env.OTP_PROVIDER || 'mock';
+  const provider = process.env.OTP_PROVIDER || 'msg91';
 
   switch (provider) {
-    case 'twilio':
-      await sendViaTwilio(phone, otp);
-      break;
-    case 'fast2sms':
-      await sendViaFast2SMS(phone, otp);
+    case 'msg91':
+      await sendViaMSG91(phone, otp);
       break;
     default:
       await sendViaMock(phone, otp);
   }
 };
 
-module.exports = { generateOTP, sendOTP };
+const verifyOTPWithProvider = async (phone, otp, expectedOtp) => {
+  const provider = process.env.OTP_PROVIDER || 'msg91';
+
+  if (provider === 'msg91') {
+    return verifyViaMSG91(phone, otp);
+  }
+
+  // Mock/dev fallback: verify with server-stored OTP.
+  return { ok: otp === expectedOtp, message: 'Invalid OTP. Please try again.' };
+};
+
+module.exports = { generateOTP, sendOTP, verifyOTPWithProvider };

@@ -1,27 +1,23 @@
 const SiteContent = require('../models/SiteContent');
-const cloudinary = require('cloudinary').v2;
+const supabase = require('../config/supabase');
 const sharp = require('sharp');
-const path = require('path');
-const fs = require('fs');
 
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+const CONTENT_BUCKET = process.env.SUPABASE_CONTENT_BUCKET || 'content';
 
-const isCloudinaryConfigured = () => {
-  const { CLOUDINARY_CLOUD_NAME: n, CLOUDINARY_API_KEY: k, CLOUDINARY_API_SECRET: s } = process.env;
-  return !!(n && k && s && !n.startsWith('your') && !k.startsWith('your') && !s.startsWith('your'));
-};
+const uploadToSupabaseStorage = async (buffer, objectPath) => {
+  const { error } = await supabase.storage
+    .from(CONTENT_BUCKET)
+    .upload(objectPath, buffer, {
+      contentType: 'image/webp',
+      upsert: false,
+    });
+  if (error) throw new Error(error.message);
 
-const saveLocally = async (buffer, folder = 'content') => {
-  const uploadsDir = path.join(__dirname, '..', 'uploads', folder);
-  if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-  const filename = `${folder}_${Date.now()}.webp`;
-  const filepath = path.join(uploadsDir, filename);
-  fs.writeFileSync(filepath, buffer);
-  return { secure_url: `/uploads/${folder}/${filename}`, public_id: `local/${folder}/${filename}` };
+  const { data } = supabase.storage.from(CONTENT_BUCKET).getPublicUrl(objectPath);
+  return {
+    secure_url: data.publicUrl,
+    public_id: `supabase/${CONTENT_BUCKET}/${objectPath}`,
+  };
 };
 
 // Default content so pages always have something to show
@@ -210,19 +206,12 @@ const uploadContentImage = async (req, res) => {
   if (!req.file) return res.status(400).json({ success: false, message: 'No file provided.' });
 
   const processed = await sharp(req.file.buffer)
-    .resize({ width: 600, height: 600, fit: 'cover', position: 'center' })
-    .webp({ quality: 85 })
+    .resize({ width: 900, height: 900, fit: 'contain', withoutEnlargement: true, background: { r: 255, g: 255, b: 255, alpha: 0 } })
+    .webp({ quality: 90 })
     .toBuffer();
 
-  const result = isCloudinaryConfigured()
-    ? await new Promise((resolve, reject) => {
-        const stream = cloudinary.uploader.upload_stream(
-          { folder: 'nio-tea/content', resource_type: 'image', quality: 'auto' },
-          (err, r) => err ? reject(err) : resolve(r)
-        );
-        stream.end(processed);
-      })
-    : await saveLocally(processed, 'content');
+  const objectPath = `team/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.webp`;
+  const result = await uploadToSupabaseStorage(processed, objectPath);
 
   res.status(200).json({ success: true, url: result.secure_url, publicId: result.public_id });
 };

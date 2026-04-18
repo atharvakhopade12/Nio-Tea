@@ -21,17 +21,25 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   }, []);
 
+  const persistSession = (token, userData) => {
+    localStorage.setItem('nio_token', token);
+    localStorage.setItem('nio_user', JSON.stringify(userData));
+    setUser(userData);
+  };
+
   const sendOTP = async (phone, name) => {
     const res = await API.post('/auth/send-otp', { phone, name });
+    if (res.data?.token && res.data?.user) {
+      persistSession(res.data.token, res.data.user);
+      toast.success(res.data.message || 'Login successful!');
+    }
     return res.data;
   };
 
   const verifyOTP = async (phone, otp, name) => {
     const res = await API.post('/auth/verify-otp', { phone, otp, name });
     const { token, user: userData } = res.data;
-    localStorage.setItem('nio_token', token);
-    localStorage.setItem('nio_user', JSON.stringify(userData));
-    setUser(userData);
+    persistSession(token, userData);
     toast.success(res.data.message);
     return res.data;
   };

@@ -1,43 +1,29 @@
 const Product = require('../models/Product');
-const cloudinary = require('cloudinary').v2;
+const supabase = require('../config/supabase');
 const sharp = require('sharp');
 const path = require('path');
-const fs = require('fs');
 
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+const PRODUCTS_BUCKET = process.env.SUPABASE_PRODUCTS_BUCKET || 'products';
 
-const isCloudinaryConfigured = () => {
-  const { CLOUDINARY_CLOUD_NAME: n, CLOUDINARY_API_KEY: k, CLOUDINARY_API_SECRET: s } = process.env;
-  return !!(n && k && s && !n.startsWith('your') && !k.startsWith('your') && !s.startsWith('your'));
+const uploadToSupabaseStorage = async (buffer, objectPath, contentType = 'image/webp') => {
+  const { error } = await supabase.storage
+    .from(PRODUCTS_BUCKET)
+    .upload(objectPath, buffer, {
+      contentType,
+      upsert: false,
+    });
+  if (error) throw new Error(error.message);
+
+  const { data } = supabase.storage.from(PRODUCTS_BUCKET).getPublicUrl(objectPath);
+  return {
+    secure_url: data.publicUrl,
+    public_id: `supabase/${PRODUCTS_BUCKET}/${objectPath}`,
+  };
 };
 
-// Helper to upload buffer to Cloudinary
-const uploadToCloudinary = async (buffer, folder = 'nio-tea/products') => {
-  return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      { folder, resource_type: 'image', quality: 'auto', fetch_format: 'auto' },
-      (error, result) => {
-        if (error) reject(error);
-        else resolve(result);
-      }
-    );
-    stream.end(buffer);
-  });
-};
-
-// Helper to save buffer to local disk (fallback)
-const saveLocally = async (buffer) => {
-  const uploadsDir = path.join(__dirname, '..', 'uploads');
-  if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-  const filename = `product_${Date.now()}.webp`;
-  const filepath = path.join(uploadsDir, filename);
-  fs.writeFileSync(filepath, buffer);
-  return { secure_url: `/uploads/${filename}`, public_id: `local/${filename}`, width: 800, height: 800 };
+const deleteFromSupabaseStorage = async (bucket, objectPath) => {
+  const { error } = await supabase.storage.from(bucket).remove([objectPath]);
+  if (error) throw new Error(error.message);
 };
 
 // @desc    Get all products (public — prices hidden for guests)
@@ -156,11 +142,14 @@ const deleteProduct = async (req, res) => {
   const product = await Product.findById(req.params.id);
   if (!product) return res.status(404).json({ success: false, message: 'Product not found.' });
 
-  // Delete images from Cloudinary
+  // Delete images from Supabase Storage
   for (const img of product.images) {
-    if (img.publicId) {
-      await cloudinary.uploader.destroy(img.publicId).catch(() => {});
-    }
+    if (!img.publicId) continue;
+    if (!img.publicId.startsWith('supabase/')) continue;
+
+    const [, bucket, ...pathParts] = img.publicId.split('/');
+    const objectPath = pathParts.join('/');
+    await deleteFromSupabaseStorage(bucket, objectPath).catch(() => {});
   }
 
   await Product.deleteById(req.params.id);
@@ -176,15 +165,25 @@ const uploadProductImage = async (req, res) => {
   }
 
   try {
-    // Process with Sharp (resize to 800x800, convert to WebP)
-    const processed = await sharp(req.file.buffer)
-      .resize({ width: 800, height: 800, fit: 'cover', position: 'center' })
-      .webp({ quality: 85 })
-      .toBuffer();
+    let uploadBuffer = req.file.buffer;
+    let outputExt = path.extname(req.file.originalname || '').toLowerCase() || '.img';
+    let contentType = req.file.mimetype || 'application/octet-stream';
 
-    const result = isCloudinaryConfigured()
-      ? await uploadToCloudinary(processed)
-      : await saveLocally(processed);
+    try {
+      // Keep the whole image visible: fit inside 1200x1200 without cropping.
+      // Transparent padding is used where needed so landscape/portrait images remain intact.
+      uploadBuffer = await sharp(req.file.buffer)
+        .resize({ width: 1200, height: 1200, fit: 'contain', withoutEnlargement: true, background: { r: 255, g: 255, b: 255, alpha: 0 } })
+        .webp({ quality: 90 })
+        .toBuffer();
+      outputExt = '.webp';
+      contentType = 'image/webp';
+    } catch {
+      // Fallback: if Sharp cannot decode a specific device format, upload the original file bytes.
+    }
+
+    const objectPath = `products/${Date.now()}_${Math.random().toString(36).slice(2, 8)}${outputExt}`;
+    const result = await uploadToSupabaseStorage(uploadBuffer, objectPath, contentType);
 
     res.status(200).json({
       success: true,
@@ -207,13 +206,10 @@ const deleteProductImage = async (req, res) => {
   const { publicId } = req.params;
   const decoded = decodeURIComponent(publicId);
 
-  if (decoded.startsWith('local/')) {
-    // Remove from local disk
-    const filename = decoded.replace('local/', '');
-    const filepath = path.join(__dirname, '..', 'uploads', filename);
-    if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
-  } else if (isCloudinaryConfigured()) {
-    await cloudinary.uploader.destroy(decoded);
+  if (decoded.startsWith('supabase/')) {
+    const [, bucket, ...pathParts] = decoded.split('/');
+    const objectPath = pathParts.join('/');
+    await deleteFromSupabaseStorage(bucket, objectPath);
   }
 
   res.status(200).json({ success: true, message: 'Image deleted.' });

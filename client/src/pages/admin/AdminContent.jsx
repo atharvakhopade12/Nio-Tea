@@ -135,9 +135,23 @@ export default function AdminContent() {
     try {
       const form = new FormData();
       form.append('image', file);
-      const res = await adminAPI.post('/admin/content/upload-image', form, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setArrayItem('members', idx, 'image', res.data.url);
-      toast.success('Image uploaded');
+      // Don't set Content-Type manually — browser will include the multipart boundary automatically
+      const res = await adminAPI.post('/admin/content/upload-image', form, {
+        headers: { 'Content-Type': undefined },
+      });
+      const imageUrl = res.data.url;
+
+      // Build the updated section data from the current snapshot and auto-save to DB
+      const currentMembers = deepClone(fd.members ?? []);
+      currentMembers[idx] = { ...currentMembers[idx], image: imageUrl };
+      const updatedFd = { ...deepClone(fd), members: currentMembers };
+
+      setFormData((prev) => ({ ...prev, [activeTab]: updatedFd }));
+
+      await adminAPI.put(`/admin/content/${activeTab}`, { data: updatedFd });
+      invalidateContentCache(activeTab);
+
+      toast.success('Image uploaded & saved!');
     } catch {
       toast.error('Image upload failed');
     } finally {
@@ -318,7 +332,7 @@ export default function AdminContent() {
                 <div className="flex gap-4 items-start">
                   <div className="shrink-0">
                     <div className="w-20 h-20 rounded-xl overflow-hidden bg-nio-green-100 flex items-center justify-center border border-nio-green-200 mb-2">
-                      {m.image ? <img src={m.image} alt={m.name} className="w-full h-full object-cover" /> : <span className="text-nio-green-600 text-xl font-bold">{m.name?.[0] || '?'}</span>}
+                      {m.image ? <img src={m.image} alt={m.name} className="w-full h-full object-cover" /> : <span className="text-nio-green-600 text-xl font-bold">{m.name?.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('') || '?'}</span>}
                     </div>
                     <label className={`${btnAdd} cursor-pointer text-xs`}>
                       {uploadingIdx === i ? <span>Uploading…</span> : <><HiPhotograph className="w-4 h-4" /><span>{m.image ? 'Change' : 'Upload'}</span><input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(i, e.target.files[0])} disabled={uploadingIdx !== null} /></>}
@@ -326,7 +340,14 @@ export default function AdminContent() {
                   </div>
                   <div className="flex-1 space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <Field label="Name"><input className={inputCls} value={m.name ?? ''} onChange={(e) => setArrayItem('members', i, 'name', e.target.value)} /></Field>
+                      <Field label="Name"><input className={inputCls} value={m.name ?? ''} onChange={(e) => {
+                        const newName = e.target.value;
+                        const words = newName.trim().split(/\s+/).filter(Boolean);
+                        const computed = words.slice(0, 2).map((w) => w[0]?.toUpperCase()).join('');
+                        const arr = deepClone(fd.members ?? []);
+                        arr[i] = { ...arr[i], name: newName, initials: computed };
+                        setField('members', arr);
+                      }} /></Field>
                       <Field label="Role / Title"><input className={inputCls} value={m.role ?? ''} onChange={(e) => setArrayItem('members', i, 'role', e.target.value)} /></Field>
                     </div>
                     <Field label="Bio (1–2 sentences)"><textarea className={inputCls} rows={2} value={m.bio ?? ''} onChange={(e) => setArrayItem('members', i, 'bio', e.target.value)} /></Field>

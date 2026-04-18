@@ -29,6 +29,14 @@ export default function Login() {
     setLoading(true);
     try {
       const res = await sendOTP(phone, name);
+      // Existing users are logged in directly without OTP.
+      if (res.requiresOTP === false) {
+        setIsNew(false);
+        setStep(STEPS.SUCCESS);
+        setTimeout(() => navigate('/products'), 1200);
+        return;
+      }
+
       setIsNew(res.purpose === 'register');
       if (res.devOTP) setDevOTP(res.devOTP);
       toast.success(`OTP sent to +91 ${phone}`);
@@ -146,7 +154,7 @@ export default function Login() {
                     disabled={loading || phone.length !== 10}
                     className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {loading ? 'Sending OTP...' : 'Get OTP'} <HiArrowRight className="w-4 h-4" />
+                    {loading ? 'Please wait...' : 'Continue'} <HiArrowRight className="w-4 h-4" />
                   </button>
                 </form>
 
